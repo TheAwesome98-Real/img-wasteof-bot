@@ -8,7 +8,7 @@ fn main() {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     log::info!("starting img v{}", VERSION);
     log::info!("connecting to server...");
-    ClientBuilder::new("http://wasteof.money")
+    match ClientBuilder::new("http://wasteof.money")
         .on("updateMessageCount", |payload: Payload, _socket: RawClient| {
             match payload {
                 Payload::String(string) => log::info!("Received: {}", string),
@@ -16,6 +16,8 @@ fn main() {
             }
         })
         .on("error", |err, _| log::error!("Error: {:#?}", err))
-        .connect()
-        .expect("failed to connect to the server");
+        .connect() {
+            Ok(_client) => log::info!("connected!"),
+            Err(err) => log::error!("failed to connect to the server: {err}: {err:?}"),
+        }
 }
