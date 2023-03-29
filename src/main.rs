@@ -30,23 +30,23 @@ struct Token {
 #[tokio::main]
 async fn main() {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-    log::info!("starting img v{}", VERSION);
-    log::info!("loading configuration...");
+    log::info!("[job:startup] starting img v{}", VERSION);
+    log::info!("[job:startup] loading configuration...");
     let config_string = match std::fs::read_to_string("Img.toml") {
         Ok(string) => string,
         Err(err) => {
-            log::error!("could not load configuration: {err}");
+            log::error!("[job:startup] could not load configuration: {err}");
             std::process::exit(1);
         }
     };
     let config: cfg::Configuration = match toml::from_str(&config_string) {
         Ok(cfg) => cfg,
         Err(err) => {
-            log::error!("could not parse configuration: {err}");
+            log::error!("[job:startup] could not parse configuration: {err}");
             std::process::exit(1);
         }
     };
-    log::info!("authenticating...");
+    log::info!("[job:startup] authenticating...");
     let body = serde_json::json!({
         "username": config.authentication.username,
         "password": config.authentication.password
@@ -61,55 +61,56 @@ async fn main() {
             Ok(text) => match serde_json::from_str::<Token>(&text) {
                 Ok(token) => token.token,
                 Err(err) => {
-                    log::error!("could not parse token: {err}");
+                    log::error!("[job:startup] could not parse token: {err}");
                     std::process::exit(1);
                 }
             },
             Err(err) => {
-                log::error!("could not parse text: {err}");
+                log::error!("[job:startup] could not parse text: {err}");
                 std::process::exit(1);
             }
         },
         Err(err) => {
-            log::error!("could not post /session: {err}");
+            log::error!("[job:startup] could not post /session: {err}");
             std::process::exit(1);
         }
     };
-    log::info!("connecting to server '{}'...", SERVER);
+    log::info!("[job:startup] connecting to server '{}'...", SERVER);
     match ClientBuilder::new(SERVER)
+        .auth(json!({ "token": token }))
         .on("updateMessageCount", |payload, _client| match payload {
             Payload::String(string) => Box::pin(async move {
-                log::info!("Received: {}", string);
+                log::info!("[job:socket] message count: {}", string);
             }),
             data => Box::pin(async move {
-                log::warn!("can't handle data: {:#?}", data);
+                log::warn!("[job:socket] can't handle data: {:#?}", data);
             }),
         })
         .on("error", |err, _client| {
             Box::pin(async move {
                 match err {
                     Payload::Binary(_) => unreachable!("errors aren't binary i think"),
-                    Payload::String(err) => log::warn!("socket error: {err}"),
+                    Payload::String(err) => log::warn!("[job:socket] socket error: {err}"),
                 }
             })
         })
         .on("close", |_payload, _client| {
             Box::pin(async move {
-                log::info!("disconnected from server");
+                log::info!("[job:socket] disconnected from server");
             })
         })
         .on("message", |payload, _| {
             Box::pin(async move {
-                log::info!("other message: {payload:#?}");
+                log::debug!("[job:socket] unsubscribed event recieved: {payload:#?}");
             })
         })
         .connect()
         .await
     {
-        Ok(_client) => log::info!("connected!"),
+        Ok(_client) => log::info!("[job:startup] connected!"),
         Err(err) => {
-            log::error!("failed to connect to the server: {err}");
-            log::error!("raw error is as follows:\n {err:#?}");
+            log::error!("[job:startup] failed to connect to the server: {err}");
+            log::error!("[job:startup] raw error is as follows:\n {err:#?}");
             std::process::exit(1);
         }
     }
@@ -119,7 +120,7 @@ async fn main() {
             chrono::Local::now()
         );
         let body = json!({ "bio": bio });
-        log::info!("updating bio with current time");
+        log::info!("[job:bio] updating bio with current time");
         match reqwest::Client::default()
             .put(format!(
                 "{SERVER}/users/{}/bio",
@@ -130,10 +131,10 @@ async fn main() {
             .send()
             .await
         {
-            Ok(_) => log::info!("updated bio"),
+            Ok(_) => log::info!("[job:bio] updated bio"),
             Err(err) => {
-                log::warn!("failed to update bio: {err}");
-                log::warn!("users may think the bot is offline!");
+                log::warn!("[job:bio] failed to update bio: {err}");
+                log::warn!("[job:bio] users may think the bot is offline!");
             }
         };
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
