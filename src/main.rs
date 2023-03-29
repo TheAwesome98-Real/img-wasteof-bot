@@ -2,6 +2,7 @@
 
 use rust_socketio::{asynchronous::ClientBuilder, Payload};
 use serde::Deserialize;
+use serde_json::json;
 
 const VERSION: &str = option_env!("CARGO_PKG_VERSION").unwrap_or("(unknown)");
 const SERVER: &str = "https://api.wasteof.money";
@@ -62,7 +63,7 @@ async fn main() {
                 Err(err) => {
                     log::error!("could not parse token: {err}");
                     std::process::exit(1);
-                },
+                }
             },
             Err(err) => {
                 log::error!("could not parse text: {err}");
@@ -86,7 +87,10 @@ async fn main() {
         })
         .on("error", |err, _client| {
             Box::pin(async move {
-                log::error!("Error: {:#?}", err);
+                match err {
+                    Payload::Binary(_) => unreachable!("errors aren't binary i think"),
+                    Payload::String(err) => log::warn!("socket error: {err}"),
+                }
             })
         })
         .on("close", |_payload, _client| {
@@ -105,11 +109,33 @@ async fn main() {
         Ok(_client) => log::info!("connected!"),
         Err(err) => {
             log::error!("failed to connect to the server: {err}");
-            log::error!("raw error is as follows:\n {err:#?}")
+            log::error!("raw error is as follows:\n {err:#?}");
+            std::process::exit(1);
         }
     }
-    /*loop {
+    loop {
+        let bio = format!(
+            "@lily's wasteof.money image editor bot (last ping at {})",
+            chrono::Local::now()
+        );
+        let body = json!({ "bio": bio });
         log::info!("updating bio with current time");
-        // "@lily's wasteof.money image editor bot (last ping at {})"
-    }*/
+        match reqwest::Client::default()
+            .put(format!(
+                "{SERVER}/users/{}/bio",
+                config.authentication.username
+            ))
+            .header("Authorization", token.clone())
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(_) => log::info!("updated bio"),
+            Err(err) => {
+                log::warn!("failed to update bio: {err}");
+                log::warn!("users may think the bot is offline!");
+            }
+        };
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    }
 }
